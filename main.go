@@ -50,11 +50,16 @@ func processFile(filepath string) error {
 	stations := map[string][]float64{}
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
-		token := scanner.Text()
+		token := scanner.Bytes()
+		i := slices.Index(token, 0x3B)
 
-		split := strings.Split(token, ";")
-		reading, _ := strconv.ParseFloat(split[1], 64)
-		stations[split[0]] = append(stations[split[0]], reading)
+		if i < 0 {
+			continue
+		}
+
+		station := string(token[:i])
+		reading, _ := strconv.ParseFloat(string(token[i+1:]), 64)
+		stations[station] = append(stations[station], reading)
 	}
 
 	log.Println("all readings read from file", time.Since(start))
