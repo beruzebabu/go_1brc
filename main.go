@@ -50,6 +50,8 @@ func processFile(filepath string) error {
 
 	stations := map[string]*StationResult{}
 	scanner := bufio.NewScanner(file)
+	buf := make([]byte, 4096 * 4096)
+	scanner.Buffer(buf, 4096 * 32768)
 	for scanner.Scan() {
 		token := scanner.Bytes()
 		i := slices.Index(token, 0x3B)
