@@ -20,10 +20,11 @@ type CliFlags struct {
 }
 
 type StationResult struct {
-	Station string
-	Min     float64
-	Max     float64
-	Mean    float64
+	Station  string
+	Min      float64
+	Max      float64
+	Mean     float64
+	Readings int
 }
 
 func parseFlags() (CliFlags, error) {
@@ -47,7 +48,7 @@ func processFile(filepath string) error {
 	}
 	defer file.Close()
 
-	stations := map[string][]float64{}
+	stations := map[string]*StationResult{}
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		token := scanner.Bytes()
@@ -58,19 +59,31 @@ func processFile(filepath string) error {
 		}
 
 		station := string(token[:i])
-		reading, _ := strconv.ParseFloat(string(token[i+1:]), 64)
-		stations[station] = append(stations[station], reading)
+		reading, _ := strconv.ParseFloat(string(token[i+1:]), 64) // this could be faster, but would require a different implementation which takes more shortcuts
+		v, ok := stations[station]
+		if !ok {
+			stations[station] = &StationResult{Station: station, Min: reading, Max: reading, Mean: reading, Readings: 1}
+			continue
+		}
+
+		if v.Min > reading {
+			v.Min = reading
+		} else if v.Max < reading {
+			v.Max = reading
+		}
+		v.Mean += reading
+		v.Readings += 1
 	}
 
 	log.Println("all readings read from file", time.Since(start))
 
 	stationsSlice := []*StationResult{}
 	for s, r := range stations {
-		min := slices.Min(r)
-		max := slices.Max(r)
-		mean := sum(r) / float64(len(r))
+		min := r.Min
+		max := r.Max
+		mean := r.Mean / float64(r.Readings)
 
-		result := &StationResult{s, min, max, mean}
+		result := &StationResult{s, min, max, mean, 0}
 		stationsSlice = append(stationsSlice, result)
 	}
 
@@ -82,9 +95,9 @@ func processFile(filepath string) error {
 
 	log.Println("sorted", time.Since(start))
 
-	//for _, sr := range stationsSlice {
-	//	fmt.Println(*sr)
-	//}
+	// for _, sr := range stationsSlice {
+	// 	fmt.Println(*sr)
+	// }
 
 	return nil
 }
