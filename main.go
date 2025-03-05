@@ -10,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -50,8 +49,8 @@ func processFile(filepath string) error {
 
 	stations := map[string]*StationResult{}
 	scanner := bufio.NewScanner(file)
-	buf := make([]byte, 4096 * 4096)
-	scanner.Buffer(buf, 4096 * 32768)
+	buf := make([]byte, 4096*4096)
+	scanner.Buffer(buf, 4096*32768)
 	for scanner.Scan() {
 		token := scanner.Bytes()
 		i := slices.Index(token, 0x3B)
@@ -61,7 +60,11 @@ func processFile(filepath string) error {
 		}
 
 		station := string(token[:i])
-		reading, _ := strconv.ParseFloat(string(token[i+1:]), 64) // this could be faster, but would require a different implementation which takes more shortcuts
+		mant, exp, neg, _, _, _, ok := readFloat(string(token[i+1:]))
+		reading, ok := atof64exact(mant, exp, neg) // this could be faster, but would require a different implementation which takes more shortcuts
+		if !ok {
+			log.Fatalln("Failed to parse to float", string(token[i+1:]))
+		}
 		v, ok := stations[station]
 		if !ok {
 			stations[station] = &StationResult{Station: station, Min: reading, Max: reading, Mean: reading, Readings: 1}
@@ -107,6 +110,119 @@ func sum[T cmp.Ordered](slice []T) T {
 	}
 	return sum
 }
+
+// FROM STDLIB BUT UNNECESSARY PARTS REMOVED
+func readFloat(s string) (mantissa uint64, exp int, neg, trunc, hex bool, i int, ok bool) {
+	// optional sign
+	if i >= len(s) {
+		return
+	}
+	switch {
+	case s[i] == '+':
+		i++
+	case s[i] == '-':
+		neg = true
+		i++
+	}
+
+	// digits
+	base := uint64(10)
+	maxMantDigits := 19 // 10^19 fits in uint64
+	sawdot := false
+	sawdigits := false
+	nd := 0
+	ndMant := 0
+	dp := 0
+loop:
+	for ; i < len(s); i++ {
+		switch c := s[i]; true {
+		case c == '.':
+			if sawdot {
+				break loop
+			}
+			sawdot = true
+			dp = nd
+			continue
+
+		case '0' <= c && c <= '9':
+			sawdigits = true
+			if c == '0' && nd == 0 { // ignore leading zeros
+				dp--
+				continue
+			}
+			nd++
+			if ndMant < maxMantDigits {
+				mantissa *= base
+				mantissa += uint64(c - '0')
+				ndMant++
+			} else if c != '0' {
+				trunc = true
+			}
+			continue
+		}
+		break
+	}
+	if !sawdigits {
+		return
+	}
+	if !sawdot {
+		dp = nd
+	}
+
+	if mantissa != 0 {
+		exp = dp - ndMant
+	}
+
+	ok = true
+	return
+}
+
+type floatInfo struct {
+	mantbits uint
+	expbits  uint
+	bias     int
+}
+
+var float64info = floatInfo{52, 11, -1023}
+var float64pow10 = []float64{
+	1e0, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9,
+	1e10, 1e11, 1e12, 1e13, 1e14, 1e15, 1e16, 1e17, 1e18, 1e19,
+	1e20, 1e21, 1e22,
+}
+
+func atof64exact(mantissa uint64, exp int, neg bool) (f float64, ok bool) {
+	if mantissa>>float64info.mantbits != 0 {
+		return
+	}
+	f = float64(mantissa)
+	if neg {
+		f = -f
+	}
+	switch {
+	case exp == 0:
+		// an integer.
+		return f, true
+	// Exact integers are <= 10^15.
+	// Exact powers of ten are <= 10^22.
+	case exp > 0 && exp <= 15+22: // int * 10^k
+		// If exponent is big but number of digits is not,
+		// can move a few zeros into the integer part.
+		if exp > 22 {
+			f *= float64pow10[exp-22]
+			exp = 22
+		}
+		if f > 1e15 || f < -1e15 {
+			// the exponent was really too large.
+			return
+		}
+		return f * float64pow10[exp], true
+	case exp < 0 && exp >= -22: // int / 10^k
+		return f / float64pow10[-exp], true
+	}
+	return
+}
+
+// END STDLIB EDITS
 
 func main() {
 	flags, err := parseFlags()
