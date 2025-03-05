@@ -97,10 +97,6 @@ func processFile(filepath string) error {
 
 	log.Println("sorted", time.Since(start))
 
-	// for _, sr := range stationsSlice {
-	// 	fmt.Println(*sr)
-	// }
-
 	return nil
 }
 
