@@ -3,5 +3,5 @@
 
 
 #### TODO
-* Optimise float parsing
+* ~Optimise float parsing~
 * Multithreading
